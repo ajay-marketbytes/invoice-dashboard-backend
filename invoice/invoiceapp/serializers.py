@@ -1,11 +1,11 @@
 from rest_framework import serializers
 from .models import Tax, Invoice, InvoiceItem
-
+ 
 class TaxSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tax
         fields = ['id', 'name', 'percentage']
-
+ 
 class InvoiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvoiceItem
@@ -15,7 +15,7 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
             'name': {'required': False},
             'unit_cost': {'required': False}
         }
-
+ 
     def validate(self, data):
         item_type = data.get('item_type')
         product = data.get('product')
@@ -24,10 +24,10 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
         if item_type == 'service' and product:
             raise serializers.ValidationError("Product should not be specified for service-type items.")
         return data
-
+ 
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, required=False)
-
+ 
     class Meta:
         model = Invoice
         fields = [
@@ -36,16 +36,18 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'subtotal', 'gst', 'discount', 'shipping', 'amount_paid', 'total_due', 'items'
         ]
         read_only_fields = ['invoice_number', 'subtotal', 'gst', 'total_due']
-
+ 
     def create(self, validated_data):
         items_data = validated_data.pop('items', [])
-        invoice = Invoice.objects.create(**validated_data)  # Save invoice first
+        invoice = Invoice.objects.create(**validated_data)
         for item_data in items_data:
-            InvoiceItem.objects.create(invoice=invoice, **item_data)  # Add items
-        invoice.calculate_totals()  # Calculate totals after items are added
-        invoice.save()  # Save updated totals
+            serializer = InvoiceItemSerializer(data=item_data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save(invoice=invoice)
+        invoice.calculate_totals()
+        invoice.save()
         return invoice
-
+ 
     def update(self, instance, validated_data):
         items_data = validated_data.pop('items', None)
         instance = super().update(instance, validated_data)
