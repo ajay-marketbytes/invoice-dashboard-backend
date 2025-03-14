@@ -48,3 +48,5 @@ tox.ini
 
 # Static files collected by Django
 /static/
+venv/Scripts/python.exe
+env/Scripts/python.exe
