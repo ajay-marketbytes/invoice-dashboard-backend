@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 class Tax(models.Model):
     name = models.CharField(max_length=100)
@@ -8,7 +9,7 @@ class Tax(models.Model):
         return f"{self.name} - {self.percentage}%"
 
 class Invoice(models.Model):
-    invoice_number = models.CharField(max_length=255, unique=True)
+    invoice_number = models.CharField(max_length=255, unique=True, blank=True)
     invoice_type = models.CharField(max_length=50, choices=[("product", "Product"), ("service", "Service")])
     client = models.ForeignKey('clients.Client', on_delete=models.CASCADE)
     branch_address = models.ForeignKey('Branchaddress.BranchAddress', on_delete=models.CASCADE)
@@ -18,29 +19,34 @@ class Invoice(models.Model):
     currency_type = models.CharField(max_length=10)
     payment_terms = models.CharField(max_length=50)
     tax_option = models.CharField(max_length=3, choices=[("yes", "Yes"), ("no", "No")], default="no")
-    tax_rate = models.ForeignKey(Tax, on_delete=models.SET_NULL, null=True, blank=True)
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)  # Percentage value
     subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    gst = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    gst = models.DecimalField(max_digits=10, decimal_places=2, default=0)  # Sum of item GSTs
     discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     shipping = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     amount_paid = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_due = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     def calculate_totals(self):
-        self.subtotal = sum(item.quantity * item.unit_cost for item in self.items.all())
-        if self.tax_option == "yes" and self.tax_rate:
-            self.gst = (self.subtotal * self.tax_rate.percentage) / 100
+        if self.pk:  # Only calculate if the instance has a primary key
+            items = self.items.all()
+            self.subtotal = sum(item.total for item in items)  # Sum of item totals
+            self.gst = sum(item.total_gst for item in items)   # Sum of item GSTs
+            self.total_due = self.subtotal + self.gst + self.shipping - self.discount - self.amount_paid
         else:
+            self.subtotal = 0
             self.gst = 0
-        self.total_due = self.subtotal + self.gst - self.discount + self.shipping - self.amount_paid
+            self.total_due = self.shipping - self.discount - self.amount_paid
 
     def save(self, *args, **kwargs):
-        # Generate invoice number if not set
         if not self.invoice_number:
             last_invoice = Invoice.objects.order_by("-id").first()
             new_number = int(last_invoice.invoice_number.split("-")[-1]) + 1 if last_invoice else 1
             self.invoice_number = f"INV-{str(new_number).zfill(5)}"
-        super().save(*args, **kwargs)  # Save without calculating totals here
+        
+        super().save(*args, **kwargs)  # Save first to get a primary key
+        self.calculate_totals()
+        super().save(update_fields=['subtotal', 'gst', 'total_due'])  # Save updated totals
 
     def __str__(self):
         return f"Invoice #{self.invoice_number} for {self.client}"
@@ -52,19 +58,17 @@ class InvoiceItem(models.Model):
     name = models.CharField(max_length=100, blank=True)
     quantity = models.PositiveIntegerField()
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2)
-    total = models.DecimalField(max_digits=10, decimal_places=2)
+    total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_gst = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
         if self.item_type == "product" and self.product:
             self.name = self.product.name
             self.unit_cost = self.product.unit_cost
-        if self.invoice.tax_option == "yes" and self.invoice.tax_rate:
-            self.total_gst = (self.quantity * self.unit_cost * self.invoice.tax_rate.percentage) / 100
-        else:
-            self.total_gst = 0
         self.total = self.quantity * self.unit_cost
+        self.total_gst = self.total * (self.invoice.tax_rate / 100) if self.invoice.tax_option == "yes" and self.invoice.tax_rate else 0
         super().save(*args, **kwargs)
+        self.invoice.save()  # Recalculate invoice totals after saving an item
 
     def __str__(self):
         return f"{self.name} ({self.quantity})"
