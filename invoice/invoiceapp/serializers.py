@@ -24,7 +24,6 @@ class InvoiceItemSerializer(serializers.ModelSerializer):
 
 class InvoiceSerializer(serializers.ModelSerializer):
     items = InvoiceItemSerializer(many=True, required=False)
-    client = serializers.StringRelatedField()
     
     class Meta:
         model = Invoice
