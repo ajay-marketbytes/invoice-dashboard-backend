@@ -24,12 +24,11 @@ class Client(models.Model):
     status = models.BooleanField(default=True)
 
     def save(self, *args, **kwargs):
-        # Enforce tax logic based on tax_type
         if self.tax_type == "gst":
-            self.vat = 0.00  # Reset VAT to 0 if GST is selected
+            self.vat = 0.00  
         elif self.tax_type == "vat":
-            self.gst = 0.00  # Reset GST to 0 if VAT is selected
-        else:  # tax_type is "nil"
+            self.gst = 0.00 
+        else: 
             self.gst = 0.00
             self.vat = 0.00
         super().save(*args, **kwargs)

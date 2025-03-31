@@ -1,8 +1,5 @@
 from django.db import models
  
-# Create your models here.
- 
- 
 class BranchAddress(models.Model):
     branch_address = models.TextField()
     state = models.CharField(max_length=100)
